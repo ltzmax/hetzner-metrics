@@ -1,3 +1,6 @@
+## PLEASE NOTE:
+This only works for cloud servers and not dedicated servers.
+
 # Hetzner Server Status Dashboard
 
 A real-time monitoring dashboard that combines official Hetzner Cloud API data with deep-system metrics (RAM, Load) via Prometheus Node Exporter.
