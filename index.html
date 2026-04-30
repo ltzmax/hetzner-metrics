@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hetzner Server Status</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .loader {
+            border-top-color: #38bdf8;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+    <script>
+      tailwind.config = { darkMode: 'class' }
+    </script>
+</head>
+<body class="bg-gray-900 text-gray-200">
+
+    <div class="container mx-auto p-4 md:p-8">
+
+        <header class="text-center mb-8">
+            <h1 class="text-4xl md:text-5xl font-bold text-white">Hetzner Server Dashboard</h1>
+            <p class="text-lg text-gray-400 mt-2">Live metrics are updated every 60 seconds.</p>
+        </header>
+
+        <div id="loading-indicator" class="text-center py-16">
+            <div class="loader ease-linear rounded-full border-8 border-t-8 border-gray-700 h-32 w-32 mx-auto"></div>
+            <p id="loading-text" class="mt-4 text-lg text-gray-400">Contacting server...</p>
+        </div>
+        <div id="error-message" class="hidden text-center bg-red-900/50 border border-red-500 text-red-300 px-4 py-3 rounded-lg relative" role="alert">
+            <strong class="font-bold">Error!</strong>
+            <span class="block sm:inline">Could not fetch server metrics.</span>
+        </div>
+
+        <main id="metrics-grid" class="hidden grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
+            <div class="bg-gray-800/50 backdrop-blur-sm p-6 rounded-2xl shadow-lg border border-gray-700">
+                <h2 class="text-2xl font-semibold text-white mb-4">CPU Usage (%)</h2>
+                <div class="h-80"><canvas id="cpuChart"></canvas></div>
+            </div>
+            <div class="bg-gray-800/50 backdrop-blur-sm p-6 rounded-2xl shadow-lg border border-gray-700">
+                <h2 class="text-2xl font-semibold text-white mb-4">RAM Usage (%)</h2>
+                <div class="h-80"><canvas id="ramChart"></canvas></div>
+            </div>
+             <div class="bg-gray-800/50 backdrop-blur-sm p-6 rounded-2xl shadow-lg border border-gray-700">
+                <h2 class="text-2xl font-semibold text-white mb-4">Load Average</h2>
+                <div class="h-80"><canvas id="loadChart"></canvas></div>
+            </div>
+            <div class="bg-gray-800/50 backdrop-blur-sm p-6 rounded-2xl shadow-lg border border-gray-700">
+                <h2 class="text-2xl font-semibold text-white mb-4">Disk IOPS (ops/s)</h2>
+                <div class="h-80"><canvas id="diskIopsChart"></canvas></div>
+            </div>
+            <div class="bg-gray-800/50 backdrop-blur-sm p-6 rounded-2xl shadow-lg border border-gray-700">
+                <h2 class="text-2xl font-semibold text-white mb-4">Disk Throughput (MB/s)</h2>
+                <div class="h-80"><canvas id="diskThroughputChart"></canvas></div>
+            </div>
+             <div class="bg-gray-800/50 backdrop-blur-sm p-6 rounded-2xl shadow-lg border border-gray-700">
+                <h2 class="text-2xl font-semibold text-white mb-4">Network PPS (packets/s)</h2>
+                <div class="h-80"><canvas id="networkPpsChart"></canvas></div>
+            </div>
+            <div class="bg-gray-800/50 backdrop-blur-sm p-6 rounded-2xl shadow-lg border border-gray-700 md:col-span-2">
+                <h2 class="text-2xl font-semibold text-white mb-4">Network Traffic (Mbps)</h2>
+                <div class="h-80"><canvas id="networkTrafficChart"></canvas></div>
+            </div>
+        </main>
+
+        <footer class="text-center mt-12 text-gray-500">
+            <p>© <script type="text/javascript">var year = new Date();document.write(year.getFullYear());</script> metrics.maxapp. All rights reserved.</p>
+        </footer>
+    </div>
+
+    <script type="module">
+        const loadingIndicator = document.getElementById('loading-indicator');
+        const loadingText = document.getElementById('loading-text');
+        const errorMessage = document.getElementById('error-message');
+        const metricsGrid = document.getElementById('metrics-grid');
+
+        async function fetchMetricsFromLocalServer() {
+            loadingText.textContent = 'Fetching metrics from server...';
+            const url = '/api/metrics'; 
+            const response = await fetch(url);
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.message || `Server responded with status ${response.status}`);
+            }
+            return response.json();
+        }
+
+        function renderChart(canvasId, datasets, timeLabels) {
+            const ctx = document.getElementById(canvasId).getContext('2d');
+            const existingChart = Chart.getChart(ctx);
+            if (existingChart) {
+                existingChart.destroy();
+            }
+
+            Chart.defaults.color = '#9ca3af';
+            Chart.defaults.borderColor = '#4b5563';
+
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: timeLabels,
+                    datasets: datasets.map(ds => ({ ...ds, fill: true, pointRadius: 1, borderWidth: 2, tension: 0.3 }))
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: { unit: 'minute', tooltipFormat: 'PPpp', displayFormats: { minute: 'HH:mm' } },
+                            grid: { display: false },
+                            ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 10 }
+                        },
+                        y: { 
+                            beginAtZero: true,
+                            max: (canvasId.includes('ram') || canvasId.includes('cpu')) ? 100 : undefined,
+                        }
+                    },
+                    plugins: {
+                        legend: { display: datasets.length > 1, position: 'top', labels: { color: '#e5e7eb' } },
+                        tooltip: { 
+                            mode: 'index', 
+                            intersect: false, 
+                            backgroundColor: 'rgba(31, 41, 55, 0.8)',
+                            titleColor: '#ffffff',
+                            bodyColor: '#d1d5db',
+                        }
+                    }
+                }
+            });
+        }
+
+        async function initializeDashboard() {
+            try {
+                const data = await fetchMetricsFromLocalServer();
+                const { metrics, server, agentMetrics } = data;
+                
+                const timeLabels = (metrics.time_series.cpu?.values || []).map(v => new Date(v[0] * 1000));
+                if (timeLabels.length === 0) {
+                    throw new Error("No time-series data available from API.");
+                }
+                
+                // --- Hetzner API Charts ---
+                const cpuData = (metrics.time_series.cpu?.values || []).map(v => parseFloat(parseFloat(v[1]).toFixed(2)));
+                renderChart('cpuChart', [{ label: 'Usage %', data: cpuData, borderColor: 'rgba(59, 130, 246, 1)', backgroundColor: 'rgba(59, 130, 246, 0.2)' }], timeLabels);
+                
+                const diskIopsRead = (metrics.time_series['disk.0.iops.read']?.values || []).map(v => parseFloat(parseFloat(v[1]).toFixed(1)));
+                const diskIopsWrite = (metrics.time_series['disk.0.iops.write']?.values || []).map(v => parseFloat(parseFloat(v[1]).toFixed(1)));
+                renderChart('diskIopsChart', [
+                    { label: 'Read ops/s', data: diskIopsRead, borderColor: 'rgba(234, 179, 8, 1)', backgroundColor: 'rgba(234, 179, 8, 0.2)' },
+                    { label: 'Write ops/s', data: diskIopsWrite, borderColor: 'rgba(139, 92, 246, 1)', backgroundColor: 'rgba(139, 92, 246, 0.2)' }
+                ], timeLabels);
+                
+                const bytesToMB = (bytes) => parseFloat((bytes / 1024 / 1024).toFixed(2));
+                const diskBwRead = (metrics.time_series['disk.0.bandwidth.read']?.values || []).map(v => bytesToMB(v[1]));
+                const diskBwWrite = (metrics.time_series['disk.0.bandwidth.write']?.values || []).map(v => bytesToMB(v[1]));
+                renderChart('diskThroughputChart', [
+                    { label: 'Read MB/s', data: diskBwRead, borderColor: 'rgba(217, 70, 239, 1)', backgroundColor: 'rgba(217, 70, 239, 0.2)' },
+                    { label: 'Write MB/s', data: diskBwWrite, borderColor: 'rgba(244, 63, 94, 1)', backgroundColor: 'rgba(244, 63, 94, 0.2)' }
+                ], timeLabels);
+
+                const networkPpsIn = (metrics.time_series['network.0.pps.in']?.values || []).map(v => parseFloat(parseFloat(v[1]).toFixed(1)));
+                const networkPpsOut = (metrics.time_series['network.0.pps.out']?.values || []).map(v => parseFloat(parseFloat(v[1]).toFixed(1)));
+                renderChart('networkPpsChart', [
+                    { label: 'Packets In', data: networkPpsIn, borderColor: 'rgba(34, 197, 94, 1)', backgroundColor: 'rgba(34, 197, 94, 0.2)' },
+                    { label: 'Packets Out', data: networkPpsOut, borderColor: 'rgba(249, 115, 22, 1)', backgroundColor: 'rgba(249, 115, 22, 0.2)' }
+                ], timeLabels);
+
+                const bytesToMbps = (bytes) => parseFloat(((bytes * 8) / 1000 / 1000).toFixed(2));
+                const networkBwIn = (metrics.time_series['network.0.bandwidth.in']?.values || []).map(v => bytesToMbps(v[1]));
+                const networkBwOut = (metrics.time_series['network.0.bandwidth.out']?.values || []).map(v => bytesToMbps(v[1]));
+                renderChart('networkTrafficChart', [
+                    { label: 'Inbound Mbps', data: networkBwIn, borderColor: 'rgba(14, 165, 233, 1)', backgroundColor: 'rgba(14, 165, 233, 0.2)' },
+                    { label: 'Outbound Mbps', data: networkBwOut, borderColor: 'rgba(245, 158, 11, 1)', backgroundColor: 'rgba(245, 158, 11, 0.2)' }
+                ], timeLabels);
+
+                // --- Agent-Based Charts ---
+                if (agentMetrics && Object.keys(agentMetrics).length > 0) {
+                    // RAM Chart
+                    if (agentMetrics.ram) {
+                        const { total, available } = agentMetrics.ram;
+                        const usedRam = total - available;
+                        const ramUsagePercent = parseFloat(((usedRam / total) * 100).toFixed(2));
+                        const ramData = Array(timeLabels.length).fill(ramUsagePercent);
+                        const usedMb = (usedRam / 1024 / 1024).toFixed(0);
+                        const totalMb = (total / 1024 / 1024).toFixed(0);
+                        renderChart('ramChart', [{ label: `Usage % (${usedMb}MB / ${totalMb}MB)`, data: ramData, borderColor: 'rgba(22, 163, 74, 1)', backgroundColor: 'rgba(22, 163, 74, 0.2)' }], timeLabels);
+                    }
+                    // Load Average Chart
+                    if (agentMetrics.load) {
+                        const load1 = Array(timeLabels.length).fill(agentMetrics.load.load1);
+                        const load5 = Array(timeLabels.length).fill(agentMetrics.load.load5);
+                        const load15 = Array(timeLabels.length).fill(agentMetrics.load.load15);
+                        renderChart('loadChart', [
+                            { label: '1 min', data: load1, borderColor: 'rgba(239, 68, 68, 1)', backgroundColor: 'rgba(239, 68, 68, 0.2)' },
+                            { label: '5 min', data: load5, borderColor: 'rgba(249, 115, 22, 1)', backgroundColor: 'rgba(249, 115, 22, 0.2)' },
+                            { label: '15 min', data: load15, borderColor: 'rgba(234, 179, 8, 1)', backgroundColor: 'rgba(234, 179, 8, 0.2)' },
+                        ], timeLabels);
+                    }
+                } else {
+                    ['ramChart', 'loadChart'].forEach(id => {
+                        const container = document.getElementById(id)?.parentElement;
+                        if (container) {
+                            container.innerHTML = `<div class="h-full flex items-center justify-center text-gray-500">Waiting for agent data...</div>`;
+                        }
+                    });
+                }
+
+                loadingIndicator.classList.add('hidden');
+                metricsGrid.classList.remove('hidden');
+
+            } catch (error) {
+                console.error('Failed to initialize dashboard:', error);
+                loadingIndicator.classList.add('hidden');
+                errorMessage.classList.remove('hidden');
+                errorMessage.querySelector('span').textContent = ` ${error.message}`;
+            }
+        }
+
+        initializeDashboard();
+        setInterval(initializeDashboard, 60000);
+    </script>
+</body>
+</html>
