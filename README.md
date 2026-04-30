@@ -4,13 +4,13 @@ A real-time monitoring dashboard that combines official Hetzner Cloud API data w
 
 ---
 
-## 🛠️ Project Structure
+## Project Structure
 *   `index.html`: The frontend dashboard using Tailwind CSS and Chart.js.
 *   `server.js`: The Node.js backend that acts as a proxy between your browser, the Hetzner API, and your server.
 
 ---
 
-## ⚙️ Prerequisites
+## Prerequisites
 1.  **Hetzner API Token:** Generate a "Read & Write" token in your Hetzner Cloud Console under **Security > API Tokens**.
 2.  **Node.js:** Ensure Node.js is installed on your local machine or dashboard host.
 3.  **Node Exporter:** To see RAM and Load metrics, the target server must have `prometheus-node-exporter` installed.
